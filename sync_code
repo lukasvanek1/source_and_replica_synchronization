@@ -1,7 +1,7 @@
-import argparse #handling comand line arguments, getting users' input
-import logging #handling files- copy, delete...
+import argparse # handling comand line arguments, getting users' input
+import logging # handling files- copy, delete...
 
-# Argument parsing for handling files
+# argument parsing for handling files
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Sync source and replica folders")
     parser.add_argument('source', help="Source folder path")
@@ -11,7 +11,7 @@ def parse_arguments():
     parser.add_argument('--dry-run', action='store_true', help="Perform a trial run with no changes made")
     return parser.parse_args()
 
-# Logging operations @ file&console
+# logging operations @ file&console
 def setup_logging(logfile):
     logging.basicConfig(
         filename=logfile,
@@ -25,3 +25,11 @@ def setup_logging(logfile):
     formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     console_handler.setFormatter(formatter)
     logging.getLogger().addHandler(console_handler)
+
+#  MD5 checksum of a file calculation
+def calculate_md5(file_path):
+    md5 = hashlib.md5()
+    with open(file_path, "r") as f:
+        for chunk in iter(lambda: f.read(4096), ""):
+            md5.update(chunk.encode('utf-8'))
+    return md5.hexdigest()
