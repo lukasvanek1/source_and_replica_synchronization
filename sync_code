@@ -3,6 +3,8 @@ import os  # file and directory ops
 import logging # handling files- copy, delete...
 import shutil  # files and dir copying
 import hashlib  # MD5 checksums generating
+import time  # adding delays between synchronization runs
+from datetime import datetime  # adding timestamps to reports
 
 
 
@@ -41,23 +43,61 @@ def calculate_md5(file_path, block_size=8192):
 
 # synchronizing the source & replica folders
 def sync_folders(source, replica, dry_run=False):
-    if not os.path.exists(replica):
-        os.mkdir(replica)
-        print(f"Replica folder created: {replica}")
+    total_operations = sum((len(files) for _, _, files in os.walk(source)))
+    completed_operations = 0
 
-    for root, dirs, files in os.walk(source):
-        for file in files:
-            source_file = os.path.join(root, file)
-            replica_file = os.path.join(replica, file)
+    if not os.path.exists(replica) and not dry_run:
+        os.makedirs(replica)
+        logging.info(f"Replica folder created: {replica}")
 
-            if not os.path.exists(replica_file) or os.path.getsize(source_file) != os.path.getsize(replica_file):
+    for dirpath, dirnames, filenames in os.walk(source):
+        rel_path = os.path.relpath(dirpath, source)
+        replica_dirpath = os.path.join(replica, rel_path)
+
+        if not os.path.exists(replica_dirpath) and not dry_run:
+            os.makedirs(replica_dirpath)
+            logging.info(f"Directory created: {replica_dirpath}")
+
+        for filename in filenames:
+            source_file = os.path.join(dirpath, filename)
+            replica_file = os.path.join(replica_dirpath, filename)
+
+            if not os.path.exists(replica_file) or calculate_md5(source_file) != calculate_md5(replica_file):
                 if not dry_run:
-                    shutil.copy(source_file, replica_file)
-                    print(f"File copied: {source_file} -> {replica_file}")
-    for root, dirs, files in os.walk(replica):
-        for file in files:
-            replica_file = os.path.join(root, file)
-            source_file = os.path.join(source, file)
+                    try:
+                        shutil.copy2(source_file, replica_file)
+                        logging.info(f"File {'updated' if os.path.exists(replica_file) else 'copied'}: {source_file} -> {replica_file}")
+                    except (PermissionError, FileNotFoundError) as e:
+                        logging.error(f"Error copying {source_file}: {str(e)}")
+
+            completed_operations += 1
+            progress = (completed_operations / total_operations) * 100
+            print(f"\rProgress: {progress:.2f}%", end="")
+
+    print()  # New line after progress bar
+
+    for dirpath, dirnames, filenames in os.walk(replica):
+        rel_path = os.path.relpath(dirpath, replica)
+        source_dirpath = os.path.join(source, rel_path)
+
+        for filename in filenames:
+            replica_file = os.path.join(dirpath, filename)
+            source_file = os.path.join(source_dirpath, filename)
             if not os.path.exists(source_file):
-                os.remove(replica_file)
-                print(f"File removed: {replica_file}")
+                if not dry_run:
+                    try:
+                        os.remove(replica_file)
+                        logging.info(f"File removed: {replica_file}")
+                    except PermissionError:
+                        logging.error(f"Permission denied: Unable to remove {replica_file}")
+
+        for dirname in dirnames:
+            replica_dir = os.path.join(dirpath, dirname)
+            source_dir = os.path.join(source_dirpath, dirname)
+            if not os.path.exists(source_dir):
+                if not dry_run:
+                    try:
+                        shutil.rmtree(replica_dir)
+                        logging.info(f"Directory removed: {replica_dir}")
+                    except PermissionError:
+                        logging.error(f"Permission denied: Unable to remove directory {replica_dir}")
