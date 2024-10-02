@@ -47,3 +47,11 @@ def sync_folders(source, replica, dry_run=False):
     if not os.path.exists(replica) and not dry_run:
         os.makedirs(replica)
         logging.info(f"Replica folder created: {replica}")
+
+    for dirpath, dirnames, filenames in os.walk(source):
+        rel_path = os.path.relpath(dirpath, source)
+        replica_dirpath = os.path.join(replica, rel_path)
+
+        if not os.path.exists(replica_dirpath) and not dry_run:
+            os.makedirs(replica_dirpath)
+            logging.info(f"Directory created: {replica_dirpath}")
