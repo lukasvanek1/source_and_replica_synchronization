@@ -1,0 +1,8 @@
+import argparse  # handling command-line
+
+# argument parsing
+def pars_arguments():
+  parser = argparse.ArgumentParser(description="Sync source and replica folders")
+  parser.add_argument('source', help="Source folder path")
+  parser.add_argument('replica', help="Replica folder path")
+
