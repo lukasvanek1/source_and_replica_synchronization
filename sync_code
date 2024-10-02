@@ -1,5 +1,10 @@
 import argparse # handling comand line arguments, getting users' input
+import os  # file and directory ops
 import logging # handling files- copy, delete...
+import shutil  # files and dir copying
+import hashlib  # MD5 checksums generating
+
+
 
 # argument parsing for handling files
 def parse_arguments():
