@@ -54,3 +54,10 @@ def sync_folders(source, replica, dry_run=False):
                 if not dry_run:
                     shutil.copy(source_file, replica_file)
                     print(f"File copied: {source_file} -> {replica_file}")
+    for root, dirs, files in os.walk(replica):
+        for file in files:
+            replica_file = os.path.join(root, file)
+            source_file = os.path.join(source, file)
+            if not os.path.exists(source_file):
+                os.remove(replica_file)
+                print(f"File removed: {replica_file}")
