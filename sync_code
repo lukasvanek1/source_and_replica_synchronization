@@ -5,6 +5,8 @@ import shutil  # files and dir copying
 import hashlib  # MD5 checksums generating
 import time  # adding delays between synchronization runs
 from datetime import datetime  # adding timestamps to reports
+import sys # needed for graceful exit
+import signal # signal interruption handling
 
 
 
@@ -101,3 +103,23 @@ def sync_folders(source, replica, dry_run=False):
                         logging.info(f"Directory removed: {replica_dir}")
                     except PermissionError:
                         logging.error(f"Permission denied: Unable to remove directory {replica_dir}")
+
+# graceful exit
+def signal_handler(signum, frame):
+    print("Received interrupt signal. Exiting...")
+    exit()
+
+# periodic sync main loop
+def main():
+    args = parse_arguments()
+    # validate paths
+    if not os.path.exists(args.source):
+        print(f"Error: Source path '{args.source}' does not exist.")
+        return
+    setup_logging(args.logfile)
+
+    signal.signal(signal.SIGINT, signal_handler)
+
+    while True:
+        sync_folders(args.source, args.replica)
+        time.sleep(args.interval)
