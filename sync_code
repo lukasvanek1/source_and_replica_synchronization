@@ -41,17 +41,16 @@ def calculate_md5(file_path, block_size=8192):
 
 # synchronizing the source & replica folders
 def sync_folders(source, replica, dry_run=False):
-    total_operations = sum((len(files) for _, _, files in os.walk(source)))
-    completed_operations = 0
+    if not os.path.exists(replica):
+        os.mkdir(replica)
+        print(f"Replica folder created: {replica}")
 
-    if not os.path.exists(replica) and not dry_run:
-        os.makedirs(replica)
-        logging.info(f"Replica folder created: {replica}")
+    for root, dirs, files in os.walk(source):
+        for file in files:
+            source_file = os.path.join(root, file)
+            replica_file = os.path.join(replica, file)
 
-    for dirpath, dirnames, filenames in os.walk(source):
-        rel_path = os.path.relpath(dirpath, source)
-        replica_dirpath = os.path.join(replica, rel_path)
-
-        if not os.path.exists(replica_dirpath) and not dry_run:
-            os.makedirs(replica_dirpath)
-            logging.info(f"Directory created: {replica_dirpath}")
+            if not os.path.exists(replica_file) or os.path.getsize(source_file) != os.path.getsize(replica_file):
+                if not dry_run:
+                    shutil.copy(source_file, replica_file)
+                    print(f"File copied: {source_file} -> {replica_file}")
