@@ -38,3 +38,12 @@ def calculate_md5(file_path, block_size=8192):
         for chunk in iter(lambda: f.read(block_size), b""):
             md5.update(chunk)
     return md5.hexdigest()
+
+# synchronizing the source & replica folders
+def sync_folders(source, replica, dry_run=False):
+    total_operations = sum((len(files) for _, _, files in os.walk(source)))
+    completed_operations = 0
+
+    if not os.path.exists(replica) and not dry_run:
+        os.makedirs(replica)
+        logging.info(f"Replica folder created: {replica}")
