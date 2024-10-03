@@ -7,6 +7,7 @@ import time  # adding delays between synchronization runs
 from datetime import datetime  # adding timestamps to reports
 import sys # needed for graceful exit
 import signal # signal interruption handling
+import stat  # file permissions setting
 
 
 
@@ -35,13 +36,13 @@ def setup_logging(logfile):
     console_handler.setFormatter(formatter)
     logging.getLogger().addHandler(console_handler)
 
-#  MD5 checksum of a file calculation
-def calculate_md5(file_path, block_size=8192):
-    md5 = hashlib.md5()
+#  MD5 checksum of a file calculation changed to sha256 for better encryption. Might slow down the process though
+def calculate_sha256(file_path, block_size=8192):
+    sha256 = hashlib.sha256()
     with open(file_path, "rb") as f:
         for chunk in iter(lambda: f.read(block_size), b""):
-            md5.update(chunk)
-    return md5.hexdigest()
+            sha256.update(chunk)
+    return sha256.hexdigest()
 
 # synchronizing the source & replica folders
 def sync_folders(source, replica, dry_run=False):
