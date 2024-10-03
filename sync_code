@@ -123,3 +123,15 @@ def main():
 
     setup_logging(args.logfile)
 
+# graceful exit signal handler
+signal.signal(signal.SIGINT, signal_handler)
+print(f"Starting synchronization from {args.source} to {args.replica} every {args.interval} seconds")
+if args.dry_run:
+    print("Dry run mode: No changes will be made")
+
+while True:
+    sync_folders(args.source, args.replica, args.dry_run)
+    time.sleep(args.interval)
+
+if __name__ == "__main__":
+    main()
