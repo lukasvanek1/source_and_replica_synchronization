@@ -106,20 +106,20 @@ def sync_folders(source, replica, dry_run=False):
 
 # graceful exit
 def signal_handler(signum, frame):
-    print("Received interrupt signal. Exiting...")
-    exit()
+    logging.info("Received interrupt signal. Exiting gracefully...")
+    sys.exit(0)
 
 # periodic sync main loop
 def main():
     args = parse_arguments()
-    # validate paths
+
+    # paths validation
     if not os.path.exists(args.source):
         print(f"Error: Source path '{args.source}' does not exist.")
         return
+    if not os.path.exists(os.path.dirname(args.logfile)):
+        print(f"Error: Log file directory '{os.path.dirname(args.logfile)}' does not exist.")
+        return
+
     setup_logging(args.logfile)
 
-    signal.signal(signal.SIGINT, signal_handler)
-
-    while True:
-        sync_folders(args.source, args.replica)
-        time.sleep(args.interval)
