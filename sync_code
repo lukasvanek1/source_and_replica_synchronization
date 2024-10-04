@@ -2,9 +2,9 @@ import argparse # handling comand line arguments, getting users' input
 import os  # file and directory ops
 import logging # handling files- copy, delete...
 import shutil  # files and dir copying
-import hashlib  # MD5 checksums generating
+import hashlib  # SHA-256 checksums generating
 import time  # adding delays between synchronization runs
-from datetime import datetime  # adding timestamps to reports
+from datetime import datetime  # adding timestamps to reports, not needed in the latest version but keeping for possible future logging/reports
 import sys # needed for graceful exit
 import signal # signal interruption handling
 import stat  # file permissions setting
