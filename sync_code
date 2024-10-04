@@ -47,7 +47,6 @@ def calculate_sha256(file_path, block_size=8192):
 
 # synchronizing the source & replica folders, symlink resolution
 def is_safe_path(basedir, path, follow_symlinks=True):
-    return True  # Temporarily disable path validation
     """
     Check if the given path is within the base directory after resolving symlinks.
 
@@ -56,20 +55,26 @@ def is_safe_path(basedir, path, follow_symlinks=True):
     :param follow_symlinks: Whether to resolve symlinks or not (default: True).
     :return: True if the path is safe, False otherwise.
     """
-    if follow_symlinks:
-        # symlinks to their absolute resolution, real paths
-        basedir = os.path.realpath(basedir)
-        path = os.path.realpath(path)
-    else:
-        # absolute paths without resolving symlinks
-        basedir = os.path.abspath(basedir)
-        path = os.path.abspath(path)
-
     try:
-        # path is within the basedir check
-        return os.path.commonpath([basedir]) == os.path.commonpath([basedir, path])
+        if follow_symlinks:
+            # resolves symlinks to their real paths
+            basedir = os.path.realpath(basedir)
+            path = os.path.realpath(path)
+        else:
+            # gets absolute paths without resolving symlinks
+            basedir = os.path.abspath(basedir)
+            path = os.path.abspath(path)
+
+        # ensures the path is within the base directory
+        is_safe = os.path.commonpath([basedir]) == os.path.commonpath([basedir, path])
+        
+        # debugging if the path is not safe log
+        if not is_safe:
+            logging.warning(f"Unsafe path detected: {path} is not within {basedir}")
+        
+        return is_safe
     except ValueError as e:
-        logging.warning(f"Path validation failed for basedir '{basedir}' and path '{path}': {str(e)}")
+        logging.error(f"Error during path validation: {str(e)}")
         return False
 
 
