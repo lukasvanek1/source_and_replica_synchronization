@@ -1,43 +1,17 @@
-import argparse # handling comand line arguments, getting users' input
+import argparse  # handling command line arguments, getting users' input
 import os  # file and directory ops
-import logging # handling files- copy, delete...
+import logging  # handling files - copy, delete...
 import shutil  # files and dir copying
 import hashlib  # SHA-256 checksums generating
 import time  # adding delays between synchronization runs
 from datetime import datetime  # adding timestamps to reports, not needed in the latest version but keeping for possible future logging/reports
-import sys # needed for graceful exit
-import signal # signal interruption handling
+import sys  # needed for graceful exit
+import signal  # signal interruption handling
 import stat  # file permissions setting
-import platform # for Windows compability
+import platform  # for Windows compatibility
+import ctypes  # for pop-up message box in Windows
 
-
-
-# argument parsing for handling files
-def parse_arguments():
-    parser = argparse.ArgumentParser(description="Sync source and replica folders")
-    parser.add_argument('source', help="Source folder path")
-    parser.add_argument('replica', help="Replica folder path")
-    parser.add_argument('interval', type=int, help="Sync interval in seconds")
-    parser.add_argument('logfile', help="Log file path")
-    parser.add_argument('--dry-run', action='store_true', help="Perform a trial run with no changes made")
-    return parser.parse_args()
-
-# logging operations @ file&console
-def setup_logging(logfile):
-    logging.basicConfig(
-        filename=logfile,
-        level=logging.INFO,
-        format='%(asctime)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
-        filemode='a'
-    )
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    console_handler.setFormatter(formatter)
-    logging.getLogger().addHandler(console_handler)
-
-#  MD5 checksum of a file calculation changed to sha256 for better encryption. Might slow down the process though
+# defines calculate_sha256 function first since there was a conflict when the warning message was introduced
 def calculate_sha256(file_path, block_size=8192):
     sha256 = hashlib.sha256()
     with open(file_path, "rb") as f:
@@ -45,7 +19,7 @@ def calculate_sha256(file_path, block_size=8192):
             sha256.update(chunk)
     return sha256.hexdigest()
 
-# synchronizing the source & replica folders, symlink resolution
+# is_safe_path definition function
 def is_safe_path(path, follow_symlinks=True):
     """
     Check if the given path exists and is valid on the file system.
@@ -72,20 +46,60 @@ def is_safe_path(path, follow_symlinks=True):
         logging.error(f"Error during path validation: {str(e)}")
         return False
 
+# placeholder function for setting file permissions
 def set_permissions(path, is_directory=False):
     if platform.system() == 'Windows':
-        # Windows does not set permissions explicitly
-        logging.warning(f"Skipping file permissions setting on Windows for path: {path}")
+        # Skip setting permissions on Windows
         return
     else:
-        # Unix-like systems
+        # For Unix-like systems, set permissions
         if is_directory:
             os.chmod(path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
         else:
             os.chmod(path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
 
+# argument parsing for handling files
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Sync source and replica folders")
+    parser.add_argument('source', help="Source folder path")
+    parser.add_argument('replica', help="Replica folder path")
+    parser.add_argument('interval', type=int, help="Sync interval in seconds")
+    parser.add_argument('logfile', help="Log file path")
+    parser.add_argument('--dry-run', action='store_true', help="Perform a trial run with no changes made")
+    return parser.parse_args()
 
+# operations logging @ file & console
+def setup_logging(logfile):
+    logging.basicConfig(
+        filename=logfile,
+        level=logging.INFO,
+        format='%(asctime)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        filemode='a'
+    )
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    console_handler.setFormatter(formatter)
+    logging.getLogger().addHandler(console_handler)
+
+# Windows warning message pop-up
+def display_warning_message():
+    message = (
+        "Warning: The replica folder is read-only, and any changes made in it will be overwritten by the source folder.\n\n"
+        "Thank you for trusting VEEAM with your data. For more great solutions, visit veeam.com."
+    )
+    ctypes.windll.user32.MessageBoxW(
+        0,
+        message,
+        "Replica Folder Sync Warning - VEEAM",
+        0x40  # MB_ICONINFORMATION | OK button only
+    )
+
+# source and replica folders synchronization, symlink resolution
 def sync_folders(source, replica, dry_run=False):
+    # Synchronization logic (without the message popup being triggered every interval)
+    
     # total operations count for better progress reporting
     total_files_source = sum(len(files) for _, _, files in os.walk(source))
     total_files_replica = sum(len(files) for _, _, files in os.walk(replica))
@@ -106,23 +120,23 @@ def sync_folders(source, replica, dry_run=False):
         rel_path = os.path.relpath(dirpath, source)
         replica_dirpath = os.path.join(replica, rel_path)
 
-        # creates the directory in replica if it doesn't exist
+        #  creates directory in replica if it doesn't exist
         if not os.path.exists(replica_dirpath) and not dry_run:
             os.makedirs(replica_dirpath)
             set_permissions(replica_dirpath, is_directory=True)
             logging.info(f"Directory created: {replica_dirpath}")
         
-        # loops over files in the current directory
+        # loop over files in the current directory
         for filename in filenames:
             source_file = os.path.join(dirpath, filename)
             replica_file = os.path.join(replica_dirpath, filename)
 
-            # checks if the replica file exists and if the checksum differs, copies the file
+            # hecks if the replica file exists and if the checksum differs, copy the file
             if not os.path.exists(replica_file) or calculate_sha256(source_file) != calculate_sha256(replica_file):
                 if not dry_run:
                     try:
                         shutil.copy2(source_file, replica_file)
-                        set_permissions(replica_file)  # sets related permissions
+                        set_permissions(replica_file)  # Set related permissions
                         logging.info(f"File {'updated' if os.path.exists(replica_file) else 'copied'}: {source_file} -> {replica_file}")
                     except Exception as e:
                         logging.error(f"Error copying file {source_file} to {replica_file}: {str(e)}")
@@ -130,8 +144,8 @@ def sync_folders(source, replica, dry_run=False):
             completed_operations += 1
             progress = (completed_operations / total_operations) * 100
             print(f"\rProgress: {progress:.2f}%", end="")
-    
-    # deleting files in the replica that are not in the source
+
+    # deletes files from replica that are not in source
     for dirpath, dirnames, filenames in os.walk(replica):
         rel_path = os.path.relpath(dirpath, replica)
         source_dirpath = os.path.join(source, rel_path)
@@ -140,7 +154,6 @@ def sync_folders(source, replica, dry_run=False):
             replica_file = os.path.join(dirpath, filename)
             source_file = os.path.join(source_dirpath, filename)
 
-            # if the source file does not exist, remove it from the replica
             if not os.path.exists(source_file):
                 if not dry_run:
                     try:
@@ -149,76 +162,21 @@ def sync_folders(source, replica, dry_run=False):
                     except Exception as e:
                         logging.error(f"Error removing file {replica_file}: {str(e)}")
 
-        # dealing with directories that no longer exist in the source
-        for dirname in dirnames:
-            replica_subdir = os.path.join(dirpath, dirname)
-            source_subdir = os.path.join(source_dirpath, dirname)
-            if not os.path.exists(source_subdir):
-                if not dry_run:
-                    try:
-                        shutil.rmtree(replica_subdir)
-                        logging.info(f"Directory removed: {replica_subdir}")
-                    except Exception as e:
-                        logging.error(f"Error removing directory {replica_subdir}: {str(e)}")
-
     print()  # final newline after progress bar
-
-
-    for dirpath, dirnames, filenames in os.walk(replica):
-    # relative path and corresponding source directory path calculation
-        rel_path = os.path.relpath(dirpath, replica)
-    source_dirpath = os.path.join(source, rel_path)
-
-    for filename in filenames:
-        # full paths for the replica and source files construction
-        replica_file = os.path.join(dirpath, filename)
-        source_file = os.path.join(source_dirpath, filename)
-
-        # replica file path validation
-        if not is_safe_path(replica_file, follow_symlinks=True):
-            logging.warning(f"Skipping potentially unsafe file path: {replica_file}")
-            continue
-
-        # source file path validation
-        if not is_safe_path(source_file, follow_symlinks=True):
-            logging.warning(f"Skipping potentially unsafe file path: {source_file}")
-            continue
-
-        # file synchronization or deletion if necessary
-        if not os.path.exists(source_file):
-            if not dry_run:
-                try:
-                    os.remove(replica_file)
-                    logging.info(f"File removed: {replica_file}")
-                except PermissionError:
-                    logging.error(f"Permission denied: Unable to remove {replica_file}")
-
-
-        for dirname in dirnames:
-            replica_dir = os.path.join(dirpath, dirname)
-            source_dir = os.path.join(source_dirpath, dirname)
-            if not os.path.exists(source_dir):
-                if not dry_run:
-                    try:
-                        shutil.rmtree(replica_dir)
-                        logging.info(f"Directory removed: {replica_dir}")
-                    except PermissionError:
-                        logging.error(f"Permission denied: Unable to remove directory {replica_dir}")
 
 # graceful exit
 def signal_handler(signum, frame):
     logging.info("Received interrupt signal. Exiting gracefully...")
     sys.exit(0)
 
-# perioding sync main loop
+# sync main loop
 def main():
     args = parse_arguments()
 
-    # paths exists validation
+    # path validation
     if not is_safe_path(args.source) or not is_safe_path(args.replica) or not is_safe_path(args.logfile):
         print("Error: One or more provided paths are invalid or do not exist.")
         return
-
 
     # interval validation
     if args.interval < 1:
@@ -229,6 +187,9 @@ def main():
 
     # graceful exit handler
     signal.signal(signal.SIGINT, signal_handler)
+
+    # message once shown only once, originally every cycle - too annoying
+    display_warning_message()
 
     logging.info(f"Starting synchronization from {args.source} to {args.replica} every {args.interval} seconds")
     if args.dry_run:
@@ -242,8 +203,10 @@ def main():
             execution_time = end_time - start_time
             logging.info(f"Synchronization {'simulation ' if args.dry_run else ''}complete. Time taken: {execution_time:.2f} seconds")
             
-            if execution_time < args.interval:
-                time.sleep(args.interval - execution_time)
+            # ensures that the sync happens at the correct interval
+            time_to_next_sync = args.interval - (time.time() - start_time)
+            if time_to_next_sync > 0:
+                time.sleep(time_to_next_sync)
             else:
                 logging.warning(f"Synchronization took longer than the specified interval. Consider increasing the interval.")
     except KeyboardInterrupt:
