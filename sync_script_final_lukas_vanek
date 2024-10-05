@@ -46,37 +46,31 @@ def calculate_sha256(file_path, block_size=8192):
     return sha256.hexdigest()
 
 # synchronizing the source & replica folders, symlink resolution
-def is_safe_path(basedir, path, follow_symlinks=True):
+def is_safe_path(path, follow_symlinks=True):
     """
-    Check if the given path is within the base directory after resolving symlinks.
+    Check if the given path exists and is valid on the file system.
 
-    :param basedir: The base directory that should be used as the root for safety checks.
     :param path: The path to check.
     :param follow_symlinks: Whether to resolve symlinks or not (default: True).
-    :return: True if the path is safe, False otherwise.
+    :return: True if the path exists, False otherwise.
     """
     try:
+        # normalize the path (resolve symlinks if necessary, otherwise get absolute path)
         if follow_symlinks:
-            # resolves symlinks to their real paths
-            basedir = os.path.realpath(basedir)
             path = os.path.realpath(path)
         else:
-            # gets absolute paths without resolving symlinks
-            basedir = os.path.abspath(basedir)
             path = os.path.abspath(path)
 
-        # ensures the path is within the base directory
-        is_safe = os.path.commonpath([basedir]) == os.path.commonpath([basedir, path])
-        
-        # debugging if the path is not safe log
-        if not is_safe:
-            logging.warning(f"Unsafe path detected: {path} is not within {basedir}")
-        
-        return is_safe
+        # checks if the path exists
+        if not os.path.exists(path):
+            logging.warning(f"Path does not exist: {path}")
+            return False
+
+        # path is valid and exists
+        return True
     except ValueError as e:
         logging.error(f"Error during path validation: {str(e)}")
         return False
-
 
 def set_permissions(path, is_directory=False):
     if platform.system() == 'Windows':
@@ -99,90 +93,75 @@ def sync_folders(source, replica, dry_run=False):
     total_directories_replica = sum(len(dirnames) for _, dirnames, _ in os.walk(replica))
     total_operations = total_files_source + total_files_replica + total_directories_source + total_directories_replica
 
-    # number of files and directories found log
+    # logs the number of files and directories found
     logging.info(f"Source folder contains {total_files_source} files and {total_directories_source} directories.")
     logging.info(f"Replica folder contains {total_files_replica} files and {total_directories_replica} directories.")
     logging.info(f"Total operations to perform: {total_operations}")
     
     completed_operations = 0
 
-    # creates replica directory if it doesn't exist
-    if not os.path.exists(replica) and not dry_run:
-        os.makedirs(replica)
-        set_permissions(replica, is_directory=True)
-        logging.info(f"Replica folder created: {replica}")
-        completed_operations += 1
-        progress = (completed_operations / total_operations) * 100
-        print(f"\rProgress: {progress:.2f}%", end="")
-
-    # source directory walk-through
+    # walks through source directory and replicate files and directories
     for dirpath, dirnames, filenames in os.walk(source):
-        # directory safety check, resolving symlinks by default
-        if not is_safe_path(source, dirpath, follow_symlinks=True):
-            logging.warning(f"Skipping potentially unsafe path: {dirpath}")
-            continue
-
-        # gets relative path and corresponding path in the replica
+        # Normalize the directory paths
         rel_path = os.path.relpath(dirpath, source)
         replica_dirpath = os.path.join(replica, rel_path)
 
-        # creates directory in replica if it doesn't exist
+        # creates the directory in replica if it doesn't exist
         if not os.path.exists(replica_dirpath) and not dry_run:
             os.makedirs(replica_dirpath)
             set_permissions(replica_dirpath, is_directory=True)
             logging.info(f"Directory created: {replica_dirpath}")
-            completed_operations += 1
-            progress = (completed_operations / total_operations) * 100
-            print(f"\rProgress: {progress:.2f}%", end="")
-
-        # Here is where we define the source_file and replica_file
-        # files in the current directory sync
+        
+        # loops over files in the current directory
         for filename in filenames:
-            source_file = os.path.join(dirpath, filename)  # Define source file here
-            replica_file = os.path.join(replica_dirpath, filename)  # Define replica file
+            source_file = os.path.join(dirpath, filename)
+            replica_file = os.path.join(replica_dirpath, filename)
 
-            # source file path validation
-            if not is_safe_path(source, source_file):
-                logging.warning(f"Skipping potentially unsafe file path: {source_file}")
-                continue
-
-            # replica file path validation
-            if not is_safe_path(replica, replica_file):
-                logging.warning(f"Skipping potentially unsafe file path: {replica_file}")
-                continue
-
-            # Now that source_file and replica_file are defined, you can use them below:
-            if os.path.islink(source_file):
+            # checks if the replica file exists and if the checksum differs, copies the file
+            if not os.path.exists(replica_file) or calculate_sha256(source_file) != calculate_sha256(replica_file):
                 if not dry_run:
                     try:
-                        if os.path.exists(replica_file):
-                            os.remove(replica_file)
-                        os.symlink(os.readlink(source_file), replica_file)
-                        logging.info(f"Symlink {'updated' if os.path.exists(replica_file) else 'created'}: {source_file} -> {replica_file}")
-                    except (PermissionError, FileNotFoundError) as e:
-                        logging.error(f"Error creating symlink {source_file}: {str(e)}")
-            elif not os.path.exists(replica_file) or calculate_sha256(source_file) != calculate_sha256(replica_file):
-                if not dry_run:
-                    try:
-                        shutil.copy2(source_file, replica_file, follow_symlinks=False)
-                        set_permissions(replica_file)
+                        shutil.copy2(source_file, replica_file)
+                        set_permissions(replica_file)  # sets related permissions
                         logging.info(f"File {'updated' if os.path.exists(replica_file) else 'copied'}: {source_file} -> {replica_file}")
-                    except (PermissionError, FileNotFoundError) as e:
-                        logging.error(f"Error copying {source_file}: {str(e)}")
+                    except Exception as e:
+                        logging.error(f"Error copying file {source_file} to {replica_file}: {str(e)}")
 
-            # completed operations for file copy/update
             completed_operations += 1
             progress = (completed_operations / total_operations) * 100
             print(f"\rProgress: {progress:.2f}%", end="")
-
-    # replica folder operations  update
+    
+    # deleting files in the replica that are not in the source
     for dirpath, dirnames, filenames in os.walk(replica):
-        completed_operations += len(filenames) + len(dirnames)
-        progress = (completed_operations / total_operations) * 100
-        print(f"\rProgress: {progress:.2f}%", end="")
+        rel_path = os.path.relpath(dirpath, replica)
+        source_dirpath = os.path.join(source, rel_path)
 
-    # final new line after progress bar completes
-    print()
+        for filename in filenames:
+            replica_file = os.path.join(dirpath, filename)
+            source_file = os.path.join(source_dirpath, filename)
+
+            # if the source file does not exist, remove it from the replica
+            if not os.path.exists(source_file):
+                if not dry_run:
+                    try:
+                        os.remove(replica_file)
+                        logging.info(f"File removed: {replica_file}")
+                    except Exception as e:
+                        logging.error(f"Error removing file {replica_file}: {str(e)}")
+
+        # dealing with directories that no longer exist in the source
+        for dirname in dirnames:
+            replica_subdir = os.path.join(dirpath, dirname)
+            source_subdir = os.path.join(source_dirpath, dirname)
+            if not os.path.exists(source_subdir):
+                if not dry_run:
+                    try:
+                        shutil.rmtree(replica_subdir)
+                        logging.info(f"Directory removed: {replica_subdir}")
+                    except Exception as e:
+                        logging.error(f"Error removing directory {replica_subdir}: {str(e)}")
+
+    print()  # final newline after progress bar
 
 
     for dirpath, dirnames, filenames in os.walk(replica):
@@ -196,12 +175,12 @@ def sync_folders(source, replica, dry_run=False):
         source_file = os.path.join(source_dirpath, filename)
 
         # replica file path validation
-        if not is_safe_path(replica, replica_file, follow_symlinks=True):
+        if not is_safe_path(replica_file, follow_symlinks=True):
             logging.warning(f"Skipping potentially unsafe file path: {replica_file}")
             continue
 
         # source file path validation
-        if not is_safe_path(source, source_file, follow_symlinks=True):
+        if not is_safe_path(source_file, follow_symlinks=True):
             logging.warning(f"Skipping potentially unsafe file path: {source_file}")
             continue
 
@@ -235,31 +214,9 @@ def signal_handler(signum, frame):
 def main():
     args = parse_arguments()
 
-
-    # paths validation
-    if not os.path.exists(args.source):
-        logging.error(f"Error: Source path '{args.source}' does not exist and cannot be created. Please provide a valid source directory.")
-        print(f"Error: Source path '{args.source}' does not exist.")
-        return
-
-    # replica directory check, creates one if necessary
-    if not os.path.exists(args.replica):
-        logging.info(f"Replica directory '{args.replica}' does not exist. Creating it automatically.")
-        os.makedirs(args.replica)
-        
-    # directory creation instead of error message when there is no such file
-    if not os.path.exists(os.path.dirname(args.logfile)):
-        os.makedirs(os.path.dirname(args.logfile))
-
-
-    # paths validation & sanitazion
-    args.source = os.path.abspath(args.source)
-    args.replica = os.path.abspath(args.replica)
-    args.logfile = os.path.abspath(args.logfile)
-
-
-    if not is_safe_path(os.getcwd(), args.source) or not is_safe_path(os.getcwd(), args.replica) or not is_safe_path(os.getcwd(), args.logfile):
-        print("Error: Invalid or potentially unsafe path provided.")
+    # paths exists validation
+    if not is_safe_path(args.source) or not is_safe_path(args.replica) or not is_safe_path(args.logfile):
+        print("Error: One or more provided paths are invalid or do not exist.")
         return
 
 
@@ -268,30 +225,27 @@ def main():
         print("Error: Sync interval must be at least 1 second.")
         return
 
-
     setup_logging(args.logfile)
 
     # graceful exit handler
     signal.signal(signal.SIGINT, signal_handler)
 
-
     logging.info(f"Starting synchronization from {args.source} to {args.replica} every {args.interval} seconds")
     if args.dry_run:
         logging.info("Dry run mode: No changes will be made")
 
-
     try:
-       while True:
-        start_time = time.time()
-        sync_folders(args.source, args.replica, args.dry_run)
-        end_time = time.time()
-        execution_time = end_time - start_time
-        logging.info(f"Synchronization {'simulation ' if args.dry_run else ''}complete. Time taken: {execution_time:.2f} seconds")
-        
-        if execution_time < args.interval:
-            time.sleep(args.interval - execution_time)
-        else:
-            logging.warning(f"Synchronization took longer than the specified interval. Consider increasing the interval.")
+        while True:
+            start_time = time.time()
+            sync_folders(args.source, args.replica, args.dry_run)
+            end_time = time.time()
+            execution_time = end_time - start_time
+            logging.info(f"Synchronization {'simulation ' if args.dry_run else ''}complete. Time taken: {execution_time:.2f} seconds")
+            
+            if execution_time < args.interval:
+                time.sleep(args.interval - execution_time)
+            else:
+                logging.warning(f"Synchronization took longer than the specified interval. Consider increasing the interval.")
     except KeyboardInterrupt:
         logging.info("Synchronization stopped by user")
 
